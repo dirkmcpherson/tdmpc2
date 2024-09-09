@@ -73,6 +73,10 @@ class OnlineTrainer(Trainer):
 			if self._step % self.cfg.eval_freq == 0:
 				eval_next = True
 
+			# save the agent periodically 
+			if self._step % self.cfg.save_freq == 0:
+				self.logger.save_agent(self.agent, identifier=f'{self._step}')
+
 			# Reset environment
 			if done:
 				if eval_next:
