@@ -76,7 +76,7 @@ def make_env(cfg):
 			raise ValueError(f'Failed to make environment "{cfg.task}": please verify that dependencies are installed and that the task exists.')
 		env = TensorWrapper(env)
 	if cfg.get('obs', 'state') == 'rgb':
-		env = PixelWrapper(cfg, env)
+		env = PixelWrapper(cfg, env, render_live=True)
 	try: # Dict
 		cfg.obs_shape = {k: v.shape for k, v in env.observation_space.spaces.items()}
 	except: # Box

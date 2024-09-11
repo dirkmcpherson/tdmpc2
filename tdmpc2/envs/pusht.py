@@ -5,7 +5,7 @@ import numpy as np
 from envs.wrappers.time_limit import TimeLimit
 
 class PushT(gym.Env):
-    def __init__(self, size=(64,64), obs_type="pixels_state", render_mode="rgb_array", force_sparse=False, max_steps=1000):
+    def __init__(self, size=(64,64), obs_type="pixels_state", render_mode="rgb_array", force_sparse=False, max_steps=1000, action_repeat=2):
         w,h = size
         self._env = gym.make("gym_pusht/PushT-v0", obs_type=obs_type, render_mode=render_mode, observation_width=w, observation_height=h)
         self._obs_is_dict = hasattr(self._env.observation_space, "spaces")
@@ -13,6 +13,7 @@ class PushT(gym.Env):
         self.force_sparse = force_sparse # Force the reward to be sparse
         self.max_steps = max_steps; self.nstep = 0
         self.max_episode_steps = max_steps
+        self.action_repeat = action_repeat
         
     def __getattr__(self, name):
         if name.startswith("__"):
@@ -23,8 +24,12 @@ class PushT(gym.Env):
             raise ValueError(name)
         
     def step(self, action):
-        # for _ in range(self._action_repeat):
-        obs, reward, done, truncated, info = self._env.step(action)
+        action = np.clip((action + 1.0) / 2.0 * 512, 0, 512)
+
+        for _ in range(self.action_repeat):
+            obs, reward, done, truncated, info = self._env.step(action)
+            if done: break
+
         if not self._obs_is_dict:
             obs = {self._obs_key: obs}
         else:
@@ -77,10 +82,9 @@ class PushT(gym.Env):
     
     @property
     def action_space(self):
-        spec = self._env.action_spec()
-        return gym.spaces.Box(spec.minimum, spec.maximum, dtype=np.float32)
+        return gym.spaces.Box(np.array([-0.5, -0.5], dtype=np.float32), np.array([0.5, 0.5], dtype=np.float32), dtype=np.float32)
 
-    def reset(self):
+    def reset(self, **kwargs):
         obs, info = self._env.reset()
         if not self._obs_is_dict:
             obs = {self._obs_key: obs}
@@ -106,3 +110,6 @@ def make_env(cfg):
     env = PushT(max_steps=300)
     env = TimeLimit(env, max_episode_steps=300)
     return env
+
+if __name__ == '__main__':
+    env = PushT(max_steps=300)

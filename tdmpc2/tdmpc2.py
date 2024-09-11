@@ -6,6 +6,7 @@ from common import math
 from common.scale import RunningScale
 from common.world_model import WorldModel
 
+import cv2 
 
 class TDMPC2:
 	"""
@@ -226,8 +227,6 @@ class TDMPC2:
 			dict: Dictionary of training statistics.
 		"""
 		obs, action, reward, task = buffer.sample()
-	
-		# Compute targets
 		with torch.no_grad():
 			next_z = self.model.encode(obs[1:], task)
 			td_targets = self._td_target(next_z, reward, task)
