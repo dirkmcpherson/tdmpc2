@@ -24,4 +24,4 @@ export WANDB_DATA_DIR=/cluster/tufts/shortlab/jstale02
 export WANDB_CACHE_DIR=/cluster/tufts/shortlab/jstale02
 sleep 30
 source activate three_ten
-python tdmpc2/train.py task=pusht obs=rgb
+python tdmpc2/train.py task=pusht obs=rgb demo_path='/cluster/tufts/shortlab/jstale02/tdmpc2/demonstrations'

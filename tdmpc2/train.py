@@ -82,8 +82,9 @@ def train(cfg: dict):
 		# show the demos:
 		for i in range(len(load_buffer._buffer.storage)):
 			obs, action, reward = load_buffer._buffer[i]["obs"], load_buffer._buffer[i]["action"], load_buffer._buffer[i]["reward"]
-			cv2.imshow(str(cfg.demo_idx), obs.detach().cpu().numpy().transpose(1,2,0)[:, :, 6:])
-			cv2.waitKey(1)
+			if 'cluster' in cfg.demo_path:
+				cv2.imshow(str(cfg.demo_idx), obs.detach().cpu().numpy().transpose(1,2,0)[:, :, 6:])
+				cv2.waitKey(1)
 			buf.add(to_td(obs, action, reward))
 
 		# for _ in range(10):
