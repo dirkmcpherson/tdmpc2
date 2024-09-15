@@ -5,6 +5,10 @@ defaults:
 task: pusht
 obs: rgb
 
+# demonstrations
+demo_path: '~/workspace/tdmpc2/demonstrations'
+demo_idx: 1
+
 # evaluation
 checkpoint: ???
 eval_episodes: 10
@@ -63,16 +67,16 @@ dropout: 0.01
 simnorm_dim: 8
 
 # logging
-wandb_project: ???
-wandb_entity: ???
+wandb_project: tdmpc-pusht
+wandb_entity: jambotime
 wandb_silent: false
-disable_wandb: true
+disable_wandb: false
 save_csv: true
 
 # misc
 save_video: true
 save_agent: true
-seed: 1
+seed: 3
 
 # convenience
 work_dir: ???

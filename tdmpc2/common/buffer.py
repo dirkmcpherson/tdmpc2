@@ -3,6 +3,7 @@ from tensordict.tensordict import TensorDict
 from torchrl.data.replay_buffers import ReplayBuffer, LazyTensorStorage
 from torchrl.data.replay_buffers.samplers import SliceSampler
 import os
+import tempfile
 
 class Buffer():
     """
@@ -94,7 +95,7 @@ class Buffer():
         """Sample a batch of subsequences from the buffer."""
         td = self._buffer.sample().view(-1, self.cfg.horizon+1).permute(1, 0)
         return self._prepare_batch(td)
-    
+
     def save(self, path):
         """
         Save the buffer's contents to a file.
@@ -105,38 +106,56 @@ class Buffer():
             print("Buffer is empty, nothing to save.")
             return
 
-        save_dict = {
-            'buffer': self._buffer.storage.data,
-            'num_eps': self._num_eps,
-            'capacity': self._capacity,
-            'device': str(self._device),
-            'cfg': self.cfg
-        }
-        
-        torch.save(save_dict, path)
-        print(f"Buffer saved to {path}")
+        S = self._capacity
+        permanent_dir = path  # Specify your desired directory path here
 
-    def load(self, path):
+        # Create the directory if it doesn't exist
+        os.makedirs(permanent_dir, exist_ok=True)
+
+        # Save the buffer to the permanent directory
+        self._buffer.dumps(permanent_dir)
+        print(f"Buffer saved to: {permanent_dir}")
+
+        # sampler = RandomSampler()
+        storage = LazyTensorStorage(S)
+        self._sampler = SliceSampler(
+            num_slices=self.cfg.batch_size,
+            end_key=None,
+            traj_key='episode',
+            truncated_key=None,
+            strict_length=True,
+        )
+
+        rb_load = self._reserve_buffer(storage)
+        rb_load.loads(permanent_dir)
+
+        assert len(self._buffer) == len(rb_load)
+
+    def load(self, path, capacity=None):
         """
         Load the buffer's contents from a file.
         
         :param path: The file path to load the buffer from.
         """
         if not os.path.exists(path):
-            print(f"File {path} does not exist.")
+            print(f"directory {path} does not exist.")
             return
+        if capacity is None: capacity = self._capacity
 
-        load_dict = torch.load(path)
-        
-        self.cfg = load_dict['cfg']
-        self._device = torch.device(load_dict['device'])
-        self._capacity = load_dict['capacity']
-        self._num_eps = load_dict['num_eps']
-        
-        storage = LazyTensorStorage(self._capacity, device=self._device)
-        storage.data = load_dict['buffer']
-        
-        self._buffer = self._reserve_buffer(storage)
+  # sampler = RandomSampler()
+        storage = LazyTensorStorage(capacity)
+        self._sampler = SliceSampler(
+            num_slices=self.cfg.batch_size,
+            end_key=None,
+            traj_key='episode',
+            truncated_key=None,
+            strict_length=True,
+        )
+
+        rb_load = self._reserve_buffer(storage)
+        rb_load.loads(path)
+        self._buffer = rb_load
+
         print(f"Buffer loaded from {path}")
 
     def compare_buffers(buffer1, buffer2):
