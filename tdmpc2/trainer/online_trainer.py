@@ -15,6 +15,7 @@ class OnlineTrainer(Trainer):
 		self._step = 0
 		self._ep_idx = 0
 		self._start_time = time()
+		self.has_pretrained = False
 
 	def common_metrics(self):
 		"""Return a dictionary of current metrics."""
@@ -107,9 +108,10 @@ class OnlineTrainer(Trainer):
 
 			# Update agent
 			if self._step >= self.cfg.seed_steps:
-				if self._step == self.cfg.seed_steps:
-					num_updates = self.cfg.seed_steps
-					print('Pretraining agent on seed data...')
+				if not self.has_pretrained:
+					self.has_pretrained = True
+					num_updates = self.cfg.pretrain_steps
+					print('Pretraining agent on seed data for ', self.cfg.pretrain_steps, ' steps')
 				else:
 					num_updates = 1
 				for _ in range(num_updates):

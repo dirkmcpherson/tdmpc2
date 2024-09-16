@@ -57,7 +57,8 @@ def train(cfg: dict):
 		
 		load_buffer._capacity = 50000
 		load_buffer._buffer = load_buffer._reserve_buffer(LazyTensorStorage(50000, device=torch.device('cpu')))
-		load_buffer.load(os.path.expanduser(cfg.demo_path) + f'/HD_{cfg.demo_idx}')
+		if not (load_buffer.load(os.path.expanduser(cfg.demo_path))):
+			raise FileNotFoundError(f"Could not load buffer at {cfg.demo_path}")
 
 		print(f"Loading from {cfg.demo_path}, transitions (3 frames): {len(load_buffer._buffer.storage)}")
 
@@ -83,7 +84,7 @@ def train(cfg: dict):
 		for i in range(len(load_buffer._buffer.storage)):
 			obs, action, reward = load_buffer._buffer[i]["obs"], load_buffer._buffer[i]["action"], load_buffer._buffer[i]["reward"]
 			if 'cluster' not in cfg.demo_path: # dont show images on the cluster
-				cv2.imshow(str(cfg.demo_idx), obs.detach().cpu().numpy().transpose(1,2,0)[:, :, 6:])
+				cv2.imshow(str(cfg.demo_path.split('/')[-1]), obs.detach().cpu().numpy().transpose(1,2,0)[:, :, 6:])
 				cv2.waitKey(1)
 			buf.add(to_td(obs, action, reward))
 

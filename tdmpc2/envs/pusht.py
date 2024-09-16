@@ -40,17 +40,17 @@ class PushT(gym.Env):
             obs["image"] = obs["pixels"]
 
         info['original_reward'] = np.array(reward)
-        info['is_success'] = np.array(info.get('is_success', False))
+        info['success'] = np.array(info.get('is_success', False))
         info['coverage'] = np.array(info.get('coverage', 0.0))
 
-        if info["is_success"]:
+        if info["success"]:
             reward = 2 * self.max_steps # self.max_steps - self.nstep
             print("Success!")
         # elif info['coverage'] > 0.5:
         #     print(f"Coverage: {info['coverage']:1.2f}")
 
         if self.force_sparse:
-            reward = 1.0 if info['is_success'] else 0.0
+            reward = 1.0 if info['success'] else 0.0
 
         # Transpose 
         obs["is_first"] = np.array(False)

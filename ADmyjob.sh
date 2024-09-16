@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J tdmpc2pusht_HD #job name
+#SBATCH -J tdmpc2pusht_AD #job name
 #SBATCH --time=01-00:00:00 #requested time (DD-HH:MM:SS)
 #SBATCH -p gpu #running on "mpi" partition/queue
 #SBATCH --gres=gpu:a100:1 #requesting 1 GPU
@@ -24,4 +24,4 @@ export WANDB_DATA_DIR=/cluster/tufts/shortlab/jstale02
 export WANDB_CACHE_DIR=/cluster/tufts/shortlab/jstale02
 sleep 30
 source activate three_ten
-python tdmpc2/train.py task=pusht obs=rgb demo_path='/cluster/tufts/shortlab/jstale02/tdmpc2/demonstrations/HD_2'
+python tdmpc2/train.py task=pusht obs=rgb demo_path='/cluster/tufts/shortlab/jstale02/tdmpc2/demonstrations/AD_0'

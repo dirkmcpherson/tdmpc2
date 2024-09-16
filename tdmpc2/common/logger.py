@@ -126,10 +126,13 @@ class Logger:
 		os.environ["WANDB_SILENT"] = "true" if cfg.wandb_silent else "false"
 		import wandb
 
+		wandb_name = f"{cfg.seed}"
+		wandb_name += f'_{cfg.demo_path.split("/")[-1]}' if cfg.demo_path else ''
+		print("Wandb name", wandb_name)
 		wandb.init(
 			project=self.project,
 			entity=self.entity,
-			name=str(cfg.seed),
+			name=wandb_name,
 			group=self._group,
 			tags=cfg_to_group(cfg, return_list=True) + [f"seed:{cfg.seed}"],
 			dir=self._log_dir,

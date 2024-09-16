@@ -13,9 +13,27 @@ from common.parser import parse_cfg
 from common.seed import set_seed
 from envs import make_env
 from tdmpc2 import TDMPC2
+from common.buffer import Buffer
 
 torch.backends.cudnn.benchmark = True
 
+from tensordict.tensordict import TensorDict
+def to_td(obs, env, action=None, reward=None):
+    """Creates a TensorDict for a new episode."""
+    if isinstance(obs, dict):
+        obs = TensorDict(obs, batch_size=(), device='cpu')
+    else:
+        obs = obs.unsqueeze(0).cpu()
+    if action is None:
+        action = torch.full_like(env.rand_act(), float('nan'))
+    if reward is None:
+        reward = torch.tensor(float('nan'))
+    td = TensorDict(dict(
+        obs=obs,
+        action=action.unsqueeze(0),
+        reward=reward.unsqueeze(0),
+    ), batch_size=(1,))
+    return td
 
 @hydra.main(config_name='config', config_path='.')
 def evaluate(cfg: dict):
@@ -50,6 +68,9 @@ def evaluate(cfg: dict):
 		print(colored('Warning: single-task evaluation of multi-task models is not currently supported.', 'red', attrs=['bold']))
 		print(colored('To evaluate a multi-task model, use task=mt80 or task=mt30.', 'red', attrs=['bold']))
 
+	cfg.buffer_size = 50000
+	buffer = Buffer(cfg)
+
 	# Make environment
 	env = make_env(cfg)
 
@@ -68,12 +89,15 @@ def evaluate(cfg: dict):
 		os.makedirs(video_dir, exist_ok=True)
 	scores = []
 	tasks = cfg.tasks if cfg.multitask else [cfg.task]
+	tds = []
 	for task_idx, task in enumerate(tasks):
 		if not cfg.multitask:
 			task_idx = None
 		ep_rewards, ep_successes = [], []
 		for i in range(cfg.eval_episodes):
 			obs, done, ep_reward, t = env.reset(task_idx=task_idx) if task_idx else env.reset(), False, 0, 0
+			tds = [to_td(obs, env)]
+
 			if cfg.save_video:
 				frames = [env.render()]
 			while not done:
@@ -83,6 +107,9 @@ def evaluate(cfg: dict):
 				t += 1
 				if cfg.save_video:
 					frames.append(env.render())
+				tds.append(to_td(obs, env, action, reward))
+			
+			buffer.add(torch.cat(tds))
 			ep_rewards.append(ep_reward)
 			ep_successes.append(info['success'])
 			if cfg.save_video:
@@ -97,6 +124,11 @@ def evaluate(cfg: dict):
 			f'\tS: {ep_successes:.02f}', 'yellow'))
 	if cfg.multitask:
 		print(colored(f'Normalized score: {np.mean(scores):.02f}', 'yellow', attrs=['bold']))
+
+	if cfg.eval_save_path:
+		path = os.path.expanduser(cfg.eval_save_path)
+		print(f"Saving eval eps to {path}")
+		buffer.save(path)
 
 
 if __name__ == '__main__':

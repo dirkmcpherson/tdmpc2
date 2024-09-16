@@ -139,7 +139,7 @@ class Buffer():
         """
         if not os.path.exists(path):
             print(f"directory {path} does not exist.")
-            return
+            return False
         if capacity is None: capacity = self._capacity
 
   # sampler = RandomSampler()
