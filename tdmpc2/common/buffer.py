@@ -141,6 +141,7 @@ class Buffer():
             print(f"directory {path} does not exist.")
             return False
         if capacity is None: capacity = self._capacity
+        return True
 
   # sampler = RandomSampler()
         storage = LazyTensorStorage(capacity)
