@@ -7,7 +7,7 @@ from envs.wrappers.time_limit import TimeLimit
 class PushT(gym.Env):
     def __init__(self, size=(64,64), obs_type="pixels_state", render_mode="rgb_array", force_sparse=False, max_steps=1000, action_repeat=2):
         w,h = size
-        self._env = gym.make("gym_pusht/PushT-v0", obs_type=obs_type, render_mode=render_mode, observation_width=w, observation_height=h)
+        self._env = gym.make("gym_pusht/PushT-v0", obs_type=obs_type, render_mode=render_mode, observation_width=w, observation_height=h, force_sparse=force_sparse)
         self._obs_is_dict = hasattr(self._env.observation_space, "spaces")
         self._obs_key = "image"
         self.force_sparse = force_sparse # Force the reward to be sparse
@@ -107,7 +107,7 @@ class PushT(gym.Env):
 def make_env(cfg):
     if 'pusht' not in cfg.task.lower():
         raise ValueError(f"Task {cfg.task} is not supported by the PushT environment.")
-    env = PushT(max_steps=300)
+    env = PushT(max_steps=300, force_sparse=cfg.force_sparse)
     env = TimeLimit(env, max_episode_steps=300)
     return env
 

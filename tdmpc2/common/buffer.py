@@ -141,9 +141,7 @@ class Buffer():
             print(f"directory {path} does not exist.")
             return False
         if capacity is None: capacity = self._capacity
-        return True
 
-  # sampler = RandomSampler()
         storage = LazyTensorStorage(capacity)
         self._sampler = SliceSampler(
             num_slices=self.cfg.batch_size,
@@ -158,6 +156,7 @@ class Buffer():
         self._buffer = rb_load
 
         print(f"Buffer loaded from {path}")
+        return True
 
     def compare_buffers(buffer1, buffer2):
         assert buffer1.capacity == buffer2.capacity, "Capacities don't match"

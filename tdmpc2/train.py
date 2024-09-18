@@ -55,8 +55,8 @@ def train(cfg: dict):
 		buf._buffer = buf._reserve_buffer(LazyTensorStorage(buf.capacity, device=torch.device('cpu')))
 		buf._num_eps += 1
 		
-		load_buffer._capacity = 50000
-		load_buffer._buffer = load_buffer._reserve_buffer(LazyTensorStorage(50000, device=torch.device('cpu')))
+		load_buffer._capacity = 10000
+		load_buffer._buffer = load_buffer._reserve_buffer(LazyTensorStorage(10000, device=torch.device('cpu')))
 		if not (load_buffer.load(os.path.expanduser(cfg.demo_path))):
 			raise FileNotFoundError(f"Could not load buffer at {cfg.demo_path}")
 
