@@ -78,6 +78,10 @@ save_agent: true
 seed: 3
 force_sparse: false
 
+# demos
+demo_buffer_size: 20000
+demo_n_eps: 200
+
 eval_save_path: '' # save out episodes from eval.py
 
 # convenience
