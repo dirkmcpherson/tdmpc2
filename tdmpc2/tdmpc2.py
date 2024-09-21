@@ -226,6 +226,7 @@ class TDMPC2:
 		Returns:
 			dict: Dictionary of training statistics.
 		"""
+
 		obs, action, reward, task = buffer.sample()
 		with torch.no_grad():
 			next_z = self.model.encode(obs[1:], task)
@@ -235,6 +236,8 @@ class TDMPC2:
 		self.optim.zero_grad(set_to_none=True)
 		self.model.train()
 
+
+		# NOTE: JS: We could do this over several different horizons, [cite - some recent paper]
 		# Latent rollout
 		zs = torch.empty(self.cfg.horizon+1, self.cfg.batch_size, self.cfg.latent_dim, device=self.device)
 		z = self.model.encode(obs[0], task)

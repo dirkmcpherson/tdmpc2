@@ -3,6 +3,7 @@ from time import time
 import numpy as np
 import torch
 from tensordict.tensordict import TensorDict
+import cv2 
 
 from trainer.base import Trainer
 
@@ -100,14 +101,19 @@ class OnlineTrainer(Trainer):
 
 			# Collect experience
 			if self._step > self.cfg.seed_steps:
+			# if True:
 				action = self.agent.act(obs, t0=len(self._tds)==1)
 			else:
 				action = self.env.rand_act()
 			obs, reward, done, info = self.env.step(action)
 			self._tds.append(self.to_td(obs, action, reward))
-
+			# if 'cluster' not in self.cfg.demo_path: # dont show images on the cluster
+			# 	toshow = obs.detach().cpu().numpy().transpose(1,2,0); title = 'live_'
+			# 	cv2.imshow(title+'0', toshow[:, :, :3]); cv2.imshow(title+'1', toshow[:, :, 3:6]); cv2.imshow(title+'2', toshow[:, :, 6:])
+			# 	cv2.waitKey(1)
 			# Update agent
 			if self._step >= self.cfg.seed_steps:
+			# if True:
 				if not self.has_pretrained:
 					self.has_pretrained = True
 					num_updates = self.cfg.pretrain_steps

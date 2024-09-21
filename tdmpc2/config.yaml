@@ -76,7 +76,7 @@ save_csv: true
 save_video: true
 save_agent: true
 seed: 3
-force_sparse: true
+force_sparse: false
 
 eval_save_path: '' # save out episodes from eval.py
 

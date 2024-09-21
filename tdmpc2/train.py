@@ -52,11 +52,11 @@ def train(cfg: dict):
 	buf = Buffer(cfg)
 	load_buffer = Buffer(cfg) # HACK
 	if cfg.demo_path:
-		buf._buffer = buf._reserve_buffer(LazyTensorStorage(buf.capacity, device=torch.device('cpu')))
-		buf._num_eps += 1
+		device = 'cuda' if 'cluster' in cfg.demo_path else 'cpu'
+		buf._buffer = buf._reserve_buffer(LazyTensorStorage(buf.capacity, device=torch.device(device)))
 		
 		load_buffer._capacity = 10000
-		load_buffer._buffer = load_buffer._reserve_buffer(LazyTensorStorage(10000, device=torch.device('cpu')))
+		load_buffer._buffer = load_buffer._reserve_buffer(LazyTensorStorage(10000, device=torch.device(device)))
 		if not (load_buffer.load(os.path.expanduser(cfg.demo_path))):
 			raise FileNotFoundError(f"Could not load buffer at {cfg.demo_path}")
 
@@ -66,7 +66,7 @@ def train(cfg: dict):
 		def to_td(obs, action=None, reward=None):
 			"""Creates a TensorDict for a new episode."""
 			if isinstance(obs, dict):
-				obs = TensorDict(obs, batch_size=(), device='cpu')
+				obs = TensorDict(obs, batch_size=(), device=device)
 			else:
 				obs = obs.unsqueeze(0).cpu()
 			if action is None:
@@ -81,27 +81,23 @@ def train(cfg: dict):
 			return td
 
 		# show the demos:
+		tds = []
+		n_ep = 0; r = torch.tensor(0.0, device=device)
 		for i in range(len(load_buffer._buffer.storage)):
-			obs, action, reward = load_buffer._buffer[i]["obs"], load_buffer._buffer[i]["action"], load_buffer._buffer[i]["reward"]
+			obs, action, reward, episode = load_buffer._buffer[i]["obs"], load_buffer._buffer[i]["action"], load_buffer._buffer[i]["reward"], load_buffer._buffer[i]["episode"]
 			if 'cluster' not in cfg.demo_path: # dont show images on the cluster
-				cv2.imshow(str(cfg.demo_path.split('/')[-1]), obs.detach().cpu().numpy().transpose(1,2,0)[:, :, 6:])
+				toshow = obs.detach().cpu().numpy().transpose(1,2,0); title = str(cfg.demo_path.split('/')[-1])
+				cv2.imshow(title+'0', toshow[:, :, :3]); cv2.imshow(title+'1', toshow[:, :, 3:6]); cv2.imshow(title+'2', toshow[:, :, 6:])
 				cv2.waitKey(1)
-			buf.add(to_td(obs, action, reward))
-
-		# for _ in range(10):
-		# 	obs, action, reward, task = load_buffer.sample()
-
-		# 	td = TensorDict(dict(
-		# 		obs=obs,
-		# 		action=action.unsqueeze(0),
-		# 		reward=reward.unsqueeze(0),
-		# 	))
-
-		# 	buf.add(td)
-
-		# 	from IPython import embed as ipshell; ipshell()
-		# 	cv2.imshow('buff example', obs.cpu().numpy()[:,:,6:9])
-		# 	cv2.waitKey(10)
+			if not tds or episode > n_ep:
+				if tds:
+					print(f"Adding episode ", episode, f" with r {r.detach().cpu()}"); r = torch.tensor(0.0, device=device)
+					buf.add(torch.cat(tds))
+				tds = [to_td(obs, action, reward)]
+				n_ep = episode
+			else:
+				tds.append(to_td(obs, action, reward))
+			if not torch.isnan(reward): r += reward
 
 
 	trainer_cls = OfflineTrainer if cfg.multitask else OnlineTrainer
