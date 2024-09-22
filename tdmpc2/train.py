@@ -55,8 +55,8 @@ def train(cfg: dict):
 		device = 'cuda' if 'cluster' in cfg.demo_path else 'cpu'
 		buf._buffer = buf._reserve_buffer(LazyTensorStorage(buf.capacity, device=torch.device(device)))
 		
-		load_buffer._capacity = 10000
-		load_buffer._buffer = load_buffer._reserve_buffer(LazyTensorStorage(10000, device=torch.device(device)))
+		load_buffer._capacity = cfg.demo_buffer_size
+		load_buffer._buffer = load_buffer._reserve_buffer(LazyTensorStorage(cfg.demo_buffer_size, device=torch.device(device)))
 		if not (load_buffer.load(os.path.expanduser(cfg.demo_path))):
 			raise FileNotFoundError(f"Could not load buffer at {cfg.demo_path}")
 
