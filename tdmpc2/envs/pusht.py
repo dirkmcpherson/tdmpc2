@@ -5,7 +5,7 @@ import numpy as np
 from envs.wrappers.time_limit import TimeLimit
 
 class PushT(gym.Env):
-    def __init__(self, size=(64,64), obs_type="pixels_state", render_mode="rgb_array", force_sparse=False, max_steps=1000, action_repeat=2):
+    def __init__(self, size=(64,64), obs_type="pixels_state", render_mode="rgb_array", force_sparse=False, max_steps=1000, action_repeat=1):
         w,h = size
         self._env = gym.make("gym_pusht/PushT-v0", obs_type=obs_type, render_mode=render_mode, observation_width=w, observation_height=h, force_sparse=force_sparse, display_cross=False)
         self._obs_is_dict = hasattr(self._env.observation_space, "spaces")
