@@ -11,8 +11,8 @@ demo_path: '~/workspace/tdmpc2/demonstrations/AD_0'
 # evaluation
 checkpoint: ???
 eval_episodes: 10
-eval_freq: 10000
-save_freq: 20000
+eval_freq: 50000
+save_freq: 50000
 
 # training
 steps: 10_000_000

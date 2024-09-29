@@ -68,7 +68,7 @@ def evaluate(cfg: dict):
 		print(colored('Warning: single-task evaluation of multi-task models is not currently supported.', 'red', attrs=['bold']))
 		print(colored('To evaluate a multi-task model, use task=mt80 or task=mt30.', 'red', attrs=['bold']))
 
-	cfg.buffer_size = 50000
+	cfg.buffer_size = 20000
 	buffer = Buffer(cfg)
 
 	# Make environment
@@ -95,6 +95,7 @@ def evaluate(cfg: dict):
 			task_idx = None
 		ep_rewards, ep_successes = [], []
 		for i in range(cfg.eval_episodes):
+			print(f"ep {i}")
 			obs, done, ep_reward, t = env.reset(task_idx=task_idx) if task_idx else env.reset(), False, 0, 0
 			tds = [to_td(obs, env)]
 
