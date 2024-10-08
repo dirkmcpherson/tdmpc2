@@ -1,6 +1,8 @@
 defaults:
     - override hydra/launcher: submitit_local
 
+debug: false
+
 # environment
 task: pusht
 obs: rgb
