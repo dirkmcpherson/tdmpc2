@@ -2,6 +2,7 @@ import dataclasses
 import os
 import datetime
 import re
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -28,6 +29,7 @@ CAT_TO_COLOR = {
 
 def make_dir(dir_path):
 	"""Create directory if it does not already exist."""
+	dir_path = Path(dir_path)
 	try:
 		os.makedirs(dir_path)
 	except OSError:
@@ -80,7 +82,7 @@ class VideoRecorder:
 
 	def __init__(self, cfg, wandb, fps=15):
 		self.cfg = cfg
-		self._save_dir = make_dir(cfg.work_dir / 'eval_video')
+		self._save_dir = make_dir(Path(cfg.work_dir) / 'eval_video')
 		self._wandb = wandb
 		self.fps = fps
 		self.frames = []
@@ -93,7 +95,12 @@ class VideoRecorder:
 
 	def record(self, env):
 		if self.enabled:
-			self.frames.append(env.render())
+			frame = env.render()
+			if hasattr(frame, 'cpu'):
+				frame = frame.cpu().numpy()
+			if frame.ndim == 4:  # (B, H, W, C) -> (H, W, C)
+				frame = frame[0]
+			self.frames.append(frame)
 
 	def save(self, step, key='videos/eval_video'):
 		if self.enabled and len(self.frames) > 0:

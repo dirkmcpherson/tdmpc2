@@ -41,7 +41,7 @@ class TDMPC2(torch.nn.Module):
 		self._prev_mean = torch.nn.Buffer(torch.zeros(self.cfg.horizon, self.cfg.action_dim, device=self.device))
 		if cfg.compile:
 			print('Compiling update function with torch.compile...')
-			self._update = torch.compile(self._update, mode="reduce-overhead")
+			self._update = torch.compile(self._update, mode="default")
 
 	@property
 	def plan(self):
@@ -49,7 +49,7 @@ class TDMPC2(torch.nn.Module):
 		if _plan_val is not None:
 			return _plan_val
 		if self.cfg.compile:
-			plan = torch.compile(self._plan, mode="reduce-overhead")
+			plan = torch.compile(self._plan, mode="default")
 		else:
 			plan = self._plan
 		self._plan_val = plan

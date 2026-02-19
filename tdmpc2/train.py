@@ -6,6 +6,7 @@ os.environ['TORCH_LOGS'] = "+recompiles"
 import warnings
 warnings.filterwarnings('ignore')
 import torch
+torch._dynamo.config.suppress_errors = True
 
 import hydra
 from termcolor import colored

@@ -4,7 +4,7 @@ defaults:
 # environment
 task: dog-run
 obs: state
-episodic: false
+episodic: True
 
 # evaluation
 checkpoint: ???
@@ -65,7 +65,7 @@ simnorm_dim: 8
 
 # logging
 wandb_project: ???
-wandb_entity: ???
+wandb_entity: None
 wandb_silent: false
 enable_wandb: true
 save_csv: true

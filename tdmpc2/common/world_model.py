@@ -107,8 +107,11 @@ class WorldModel(nn.Module):
 		"""
 		if self.cfg.multitask:
 			obs = self.task_emb(obs, task)
-		if self.cfg.obs == 'rgb' and obs.ndim == 5:
-			return torch.stack([self._encoder[self.cfg.obs](o) for o in obs])
+		if self.cfg.obs == 'rgb':
+			if obs.ndim == 3:  # single obs (C, H, W) — add/remove batch dim for Conv2d
+				return self._encoder[self.cfg.obs](obs.unsqueeze(0)).squeeze(0)
+			if obs.ndim == 5:  # sequence (T, B, C, H, W)
+				return torch.stack([self._encoder[self.cfg.obs](o) for o in obs])
 		return self._encoder[self.cfg.obs](obs)
 
 	def next(self, z, a, task):
