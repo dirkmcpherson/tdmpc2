@@ -4,6 +4,7 @@ defaults:
 # environment
 task: dog-run
 obs: state
+episodic: false
 
 # evaluation
 checkpoint: ???
@@ -16,6 +17,7 @@ steps: 10_000_000
 batch_size: 256
 reward_coef: 0.1
 value_coef: 0.1
+termination_coef: 1
 consistency_coef: 20
 rho: 0.5
 lr: 3e-4
@@ -66,10 +68,11 @@ simnorm_dim: 8
 wandb_project: ???
 wandb_entity: ???
 wandb_silent: false
-disable_wandb: true
+enable_wandb: true
 save_csv: true
 
 # misc
+compile: true
 save_video: true
 save_agent: true
 seed: 1

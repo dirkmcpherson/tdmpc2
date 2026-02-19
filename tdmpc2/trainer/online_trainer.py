@@ -3,7 +3,6 @@ from time import time
 import numpy as np
 import torch
 from tensordict.tensordict import TensorDict
-
 from trainer.base import Trainer
 
 
@@ -18,20 +17,23 @@ class OnlineTrainer(Trainer):
 
 	def common_metrics(self):
 		"""Return a dictionary of current metrics."""
+		elapsed_time = time() - self._start_time
 		return dict(
 			step=self._step,
 			episode=self._ep_idx,
-			total_time=time() - self._start_time,
+			elapsed_time=elapsed_time,
+			steps_per_second=self._step / elapsed_time
 		)
 
 	def eval(self):
 		"""Evaluate a TD-MPC2 agent."""
-		ep_rewards, ep_successes = [], []
+		ep_rewards, ep_successes, ep_lengths = [], [], []
 		for i in range(self.cfg.eval_episodes):
 			obs, done, ep_reward, t = self.env.reset(), False, 0, 0
 			if self.cfg.save_video:
 				self.logger.video.init(self.env, enabled=(i==0))
 			while not done:
+				torch.compiler.cudagraph_mark_step_begin()
 				action = self.agent.act(obs, t0=t==0, eval_mode=True)
 				obs, reward, done, info = self.env.step(action)
 				ep_reward += reward
@@ -40,14 +42,16 @@ class OnlineTrainer(Trainer):
 					self.logger.video.record(self.env)
 			ep_rewards.append(ep_reward)
 			ep_successes.append(info['success'])
+			ep_lengths.append(t)
 			if self.cfg.save_video:
 				self.logger.video.save(self._step)
 		return dict(
 			episode_reward=np.nanmean(ep_rewards),
 			episode_success=np.nanmean(ep_successes),
+			episode_length= np.nanmean(ep_lengths),
 		)
 
-	def to_td(self, obs, action=None, reward=None):
+	def to_td(self, obs, action=None, reward=None, terminated=None):
 		"""Creates a TensorDict for a new episode."""
 		if isinstance(obs, dict):
 			obs = TensorDict(obs, batch_size=(), device='cpu')
@@ -57,18 +61,20 @@ class OnlineTrainer(Trainer):
 			action = torch.full_like(self.env.rand_act(), float('nan'))
 		if reward is None:
 			reward = torch.tensor(float('nan'))
-		td = TensorDict(dict(
+		if terminated is None:
+			terminated = torch.tensor(float('nan'))
+		td = TensorDict(
 			obs=obs,
 			action=action.unsqueeze(0),
 			reward=reward.unsqueeze(0),
-		), batch_size=(1,))
+			terminated=terminated.unsqueeze(0),
+		batch_size=(1,))
 		return td
 
 	def train(self):
 		"""Train a TD-MPC2 agent."""
-		train_metrics, done, eval_next = {}, True, True
+		train_metrics, done, eval_next = {}, True, False
 		while self._step <= self.cfg.steps:
-
 			# Evaluate agent periodically
 			if self._step % self.cfg.eval_freq == 0:
 				eval_next = True
@@ -86,10 +92,14 @@ class OnlineTrainer(Trainer):
 					eval_next = False
 
 				if self._step > 0:
+					if info['terminated'] and not self.cfg.episodic:
+						raise ValueError('Termination detected but you are not in episodic mode. ' \
+						'Set `episodic=true` to enable support for terminations.')
 					train_metrics.update(
 						episode_reward=torch.tensor([td['reward'] for td in self._tds[1:]]).sum(),
 						episode_success=info['success'],
-					)
+						episode_length=len(self._tds),
+						episode_terminated=info['terminated'])
 					train_metrics.update(self.common_metrics())
 					self.logger.log(train_metrics, 'train')
 					self._ep_idx = self.buffer.add(torch.cat(self._tds))
@@ -103,7 +113,7 @@ class OnlineTrainer(Trainer):
 			else:
 				action = self.env.rand_act()
 			obs, reward, done, info = self.env.step(action)
-			self._tds.append(self.to_td(obs, action, reward))
+			self._tds.append(self.to_td(obs, action, reward, info['terminated']))
 
 			# Update agent
 			if self._step >= self.cfg.seed_steps:
@@ -117,5 +127,5 @@ class OnlineTrainer(Trainer):
 				train_metrics.update(_train_metrics)
 
 			self._step += 1
-	
+
 		self.logger.finish(self.agent)
