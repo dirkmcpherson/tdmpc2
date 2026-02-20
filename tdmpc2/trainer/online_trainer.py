@@ -1,3 +1,4 @@
+from pathlib import Path
 from time import time
 
 import numpy as np
@@ -14,6 +15,30 @@ class OnlineTrainer(Trainer):
 		self._step = 0
 		self._ep_idx = 0
 		self._start_time = time()
+		if self.cfg.get('demo_dir', None):
+			self._load_demos(Path(self.cfg.demo_dir))
+
+	def _load_demos(self, demo_dir):
+		"""Load pre-converted npz demonstrations into the replay buffer."""
+		npz_files = sorted(demo_dir.glob('*.npz'))
+		if not npz_files:
+			print(f'Warning: no .npz files found in {demo_dir}')
+			return
+		print(f'Loading {len(npz_files)} demonstrations from {demo_dir}')
+		for path in npz_files:
+			data = np.load(path)
+			obs = data['obs']
+			# Keep uint8 for image obs — PixelPreprocess in the encoder handles /255
+			obs_tensor = torch.from_numpy(obs) if obs.dtype == np.uint8 else torch.from_numpy(obs).float()
+			td = TensorDict(
+				obs=obs_tensor,
+				action=torch.from_numpy(data['action']).float(),
+				reward=torch.from_numpy(data['reward']).float(),
+				terminated=torch.from_numpy(data['terminated']).float(),
+				batch_size=(len(obs),),
+			)
+			self._ep_idx = self.buffer.add(td)
+		print(f'Buffer pre-filled with {self.buffer.num_eps} demo episodes')
 
 	def common_metrics(self):
 		"""Return a dictionary of current metrics."""

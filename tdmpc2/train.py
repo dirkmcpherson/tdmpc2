@@ -47,6 +47,9 @@ def train(cfg: dict):
 	assert torch.cuda.is_available()
 	assert cfg.steps > 0, 'Must train for at least 1 step.'
 	cfg = parse_cfg(cfg)
+	if cfg.seed == 1:
+		import random as _random
+		cfg.seed = _random.randint(2, 2**30)
 	set_seed(cfg.seed)
 	print(colored('Work dir:', 'yellow', attrs=['bold']), cfg.work_dir)
 
