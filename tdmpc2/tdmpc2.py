@@ -206,13 +206,14 @@ class TDMPC2(torch.nn.Module):
 		self._prev_mean.copy_(mean)
 		return a.clamp(-1, 1)
 
-	def update_pi(self, zs, task):
+	def update_pi(self, zs, task, confidence=None):
 		"""
 		Update policy using a sequence of latent states.
 
 		Args:
 			zs (torch.Tensor): Sequence of latent states.
 			task (torch.Tensor): Task index (only used for multi-task experiments).
+			confidence (torch.Tensor): Per-timestep confidence weights (horizon, batch) or None.
 
 		Returns:
 			float: Loss of the policy update.
@@ -224,7 +225,14 @@ class TDMPC2(torch.nn.Module):
 
 		# Loss is a weighted sum of Q-values
 		rho = torch.pow(self.cfg.rho, torch.arange(len(qs), device=self.device))
-		pi_loss = (-(self.cfg.entropy_coef * info["scaled_entropy"] + qs).mean(dim=(1,2)) * rho).mean()
+		if confidence is not None:
+			# confidence is (horizon, batch), qs is (horizon+1, batch, 1)
+			# Prepend 1.0 for t=0 (encoded from real obs, no dynamics uncertainty)
+			conf_full = torch.cat([torch.ones(1, confidence.shape[1], device=confidence.device), confidence])
+			rho = rho.unsqueeze(1) * conf_full  # (horizon+1, batch)
+			pi_loss = (-(self.cfg.entropy_coef * info["scaled_entropy"] + qs).squeeze(-1) * rho).mean()
+		else:
+			pi_loss = (-(self.cfg.entropy_coef * info["scaled_entropy"] + qs).mean(dim=(1,2)) * rho).mean()
 		pi_loss.backward()
 		pi_grad_norm = torch.nn.utils.clip_grad_norm_(self.model._pi.parameters(), self.cfg.grad_clip_norm)
 		self.pi_optim.step()
@@ -271,10 +279,25 @@ class TDMPC2(torch.nn.Module):
 		z = self.model.encode(obs[0], task)
 		zs[0] = z
 		consistency_loss = 0
+		uncertainties = []
 		for t, (_action, _next_z) in enumerate(zip(action.unbind(0), next_z.unbind(0))):
-			z = self.model.next(z, _action, task)
+			if self.cfg.uncertainty_weight:
+				z, unc = self.model.next(z, _action, task, return_uncertainty=True)
+				uncertainties.append(unc)
+			else:
+				z = self.model.next(z, _action, task)
 			consistency_loss = consistency_loss + F.mse_loss(z, _next_z) * self.cfg.rho**t
 			zs[t+1] = z
+
+		# Compute confidence weights from ensemble disagreement
+		if self.cfg.uncertainty_weight:
+			unc = torch.stack(uncertainties)   # (horizon, batch)
+			unc_mean = unc.mean()
+			unc_std = unc.std() + 1e-8
+			z_score = (unc - unc_mean) / unc_std
+			confidence = torch.clamp(torch.exp(-torch.relu(z_score - 2.0)), min=0.01)
+		else:
+			confidence = None
 
 		# Predictions
 		_zs = zs[:-1]
@@ -286,9 +309,15 @@ class TDMPC2(torch.nn.Module):
 		# Compute losses
 		reward_loss, value_loss = 0, 0
 		for t, (rew_pred_unbind, rew_unbind, td_targets_unbind, qs_unbind) in enumerate(zip(reward_preds.unbind(0), reward.unbind(0), td_targets.unbind(0), qs.unbind(1))):
-			reward_loss = reward_loss + math.soft_ce(rew_pred_unbind, rew_unbind, self.cfg).mean() * self.cfg.rho**t
-			for _, qs_unbind_unbind in enumerate(qs_unbind.unbind(0)):
-				value_loss = value_loss + math.soft_ce(qs_unbind_unbind, td_targets_unbind, self.cfg).mean() * self.cfg.rho**t
+			if confidence is not None:
+				conf_t = confidence[t].unsqueeze(-1)  # (batch, 1)
+				reward_loss = reward_loss + (math.soft_ce(rew_pred_unbind, rew_unbind, self.cfg) * conf_t).mean() * self.cfg.rho**t
+				for _, qs_unbind_unbind in enumerate(qs_unbind.unbind(0)):
+					value_loss = value_loss + (math.soft_ce(qs_unbind_unbind, td_targets_unbind, self.cfg) * conf_t).mean() * self.cfg.rho**t
+			else:
+				reward_loss = reward_loss + math.soft_ce(rew_pred_unbind, rew_unbind, self.cfg).mean() * self.cfg.rho**t
+				for _, qs_unbind_unbind in enumerate(qs_unbind.unbind(0)):
+					value_loss = value_loss + math.soft_ce(qs_unbind_unbind, td_targets_unbind, self.cfg).mean() * self.cfg.rho**t
 
 		consistency_loss = consistency_loss / self.cfg.horizon
 		reward_loss = reward_loss / self.cfg.horizon
@@ -311,7 +340,7 @@ class TDMPC2(torch.nn.Module):
 		self.optim.zero_grad(set_to_none=True)
 
 		# Update policy
-		pi_info = self.update_pi(zs.detach(), task)
+		pi_info = self.update_pi(zs.detach(), task, confidence=confidence.detach() if confidence is not None else None)
 
 		# Update target Q-functions
 		self.model.soft_update_target_Q()
@@ -328,6 +357,11 @@ class TDMPC2(torch.nn.Module):
 		})
 		if self.cfg.episodic:
 			info.update(math.termination_statistics(torch.sigmoid(termination_pred[-1]), terminated[-1]))
+		if self.cfg.uncertainty_weight:
+			info['unc_mean'] = unc_mean
+			info['unc_std'] = unc_std
+			info['conf_avg'] = confidence.mean()
+			info['conf_min'] = confidence.min()
 		info.update(pi_info)
 		return info.detach().mean()
 

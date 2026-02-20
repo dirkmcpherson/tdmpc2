@@ -23,7 +23,15 @@ class WorldModel(nn.Module):
 			for i in range(len(cfg.tasks)):
 				self._action_masks[i, :cfg.action_dims[i]] = 1.
 		self._encoder = layers.enc(cfg)
-		self._dynamics = layers.mlp(cfg.latent_dim + cfg.action_dim + cfg.task_dim, 2*[cfg.mlp_dim], cfg.latent_dim, act=layers.SimNorm(cfg))
+		if cfg.uncertainty_weight:
+			print(f"Using UNCERTAINTY WEIGHTS with {cfg.num_dynamics} models.")
+			self._dynamics = layers.Ensemble([
+				layers.mlp(cfg.latent_dim + cfg.action_dim + cfg.task_dim,
+						   2*[cfg.mlp_dim], cfg.latent_dim, act=layers.SimNorm(cfg))
+				for _ in range(cfg.num_dynamics)
+			])
+		else:
+			self._dynamics = layers.mlp(cfg.latent_dim + cfg.action_dim + cfg.task_dim, 2*[cfg.mlp_dim], cfg.latent_dim, act=layers.SimNorm(cfg))
 		self._reward = layers.mlp(cfg.latent_dim + cfg.action_dim + cfg.task_dim, 2*[cfg.mlp_dim], max(cfg.num_bins, 1))
 		self._termination = layers.mlp(cfg.latent_dim + cfg.task_dim, 2*[cfg.mlp_dim], 1) if cfg.episodic else None
 		self._pi = layers.mlp(cfg.latent_dim + cfg.task_dim, 2*[cfg.mlp_dim], 2*cfg.action_dim)
@@ -114,14 +122,24 @@ class WorldModel(nn.Module):
 				return torch.stack([self._encoder[self.cfg.obs](o) for o in obs])
 		return self._encoder[self.cfg.obs](obs)
 
-	def next(self, z, a, task):
+	def next(self, z, a, task, return_uncertainty=False):
 		"""
 		Predicts the next latent state given the current latent state and action.
 		"""
 		if self.cfg.multitask:
 			z = self.task_emb(z, task)
 		z = torch.cat([z, a], dim=-1)
-		return self._dynamics(z)
+		if self.cfg.uncertainty_weight:
+			preds = self._dynamics(z)        # (num_dynamics, batch, latent_dim)
+			z_next = preds.mean(0)           # (batch, latent_dim)
+			if return_uncertainty:
+				uncertainty = preds.std(0).mean(-1)  # (batch,) mean std across latent dims
+				return z_next, uncertainty
+			return z_next
+		z_next = self._dynamics(z)
+		if return_uncertainty:
+			return z_next, torch.zeros(z_next.shape[0], device=z_next.device)
+		return z_next
 
 	def reward(self, z, a, task):
 		"""

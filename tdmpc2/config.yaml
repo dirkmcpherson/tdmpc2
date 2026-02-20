@@ -62,6 +62,8 @@ task_dim: 96
 num_q: 5
 dropout: 0.01
 simnorm_dim: 8
+uncertainty_weight: false
+num_dynamics: 3
 
 # logging
 wandb_project: ???
