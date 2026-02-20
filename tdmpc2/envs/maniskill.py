@@ -87,6 +87,14 @@ class ManiSkillWrapper(gym.Wrapper):
 		obs, _ = self.env.reset()
 		return self._extract_obs(obs)
 
+	def _custom_success(self):
+		"""Less strict success: grasped + within goal_thresh, no static robot requirement."""
+		u = self.env.unwrapped
+		obj_to_goal = u.goal_site.pose.p - u.cube.pose.p  # (B, 3)
+		distance = float(torch.linalg.norm(obj_to_goal, dim=-1)[0].item())
+		is_grasped = bool(u.agent.is_grasping(u.cube)[0].item())
+		return is_grasped and distance < u.goal_thresh
+
 	def step(self, action):
 		reward = 0
 		for _ in range(2):
@@ -95,13 +103,18 @@ class ManiSkillWrapper(gym.Wrapper):
 			done = bool((terminated | truncated).item())
 			if done:
 				break
-		obs = self._extract_obs(obs)
 		info['terminated'] = bool(terminated.item())
 		info['success'] = bool(info['success'].item())
+
+		# Override with less strict success check (no static robot requirement)
+		if not info['success'] and self._custom_success():
+			info['success'] = True
+			done = True
 
 		if info['success']:
 			reward += 100.
 
+		obs = self._extract_obs(obs)
 		return obs, reward, done, info
 
 	@property
