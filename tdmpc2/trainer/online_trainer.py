@@ -21,20 +21,18 @@ class OnlineTrainer(Trainer):
 	def _load_demos(self, demo_dir):
 		"""Load pre-converted npz demonstrations into the replay buffer."""
 		npz_files = sorted(demo_dir.glob('*.npz'))
-		if not npz_files:
-			print(f'Warning: no .npz files found in {demo_dir}')
-			return
+		assert npz_files, f"No .npz files found in {demo_dir}. Check your demo_dir path."
 		print(f'Loading {len(npz_files)} demonstrations from {demo_dir}')
-		# Expected obs channels from env config (e.g. 7 for second_cam=rgb)
 		expected_shape = self.cfg.obs_shape.get('rgb', None)
 		for path in npz_files:
 			data = np.load(path)
 			obs = data['obs']
-			# Pad image obs channels if demos have fewer than expected (e.g. 4ch demos with second_cam=rgb)
-			if expected_shape is not None and obs.ndim == 4 and obs.shape[1] < expected_shape[0]:
-				pad_channels = expected_shape[0] - obs.shape[1]
-				padding = np.zeros((obs.shape[0], pad_channels, obs.shape[2], obs.shape[3]), dtype=obs.dtype)
-				obs = np.concatenate([obs, padding], axis=1)
+			if expected_shape is not None and obs.ndim == 4:
+				assert obs.shape[1] == expected_shape[0], (
+					f"Demo channel mismatch: {path.name} has {obs.shape[1]} channels "
+					f"but config expects {expected_shape[0]} (second_cam={getattr(self.cfg, 'second_cam', 'none')}). "
+					f"Re-convert demos with matching --second_cam setting."
+				)
 			# Keep uint8 for image obs — PixelPreprocess in the encoder handles /255
 			obs_tensor = torch.from_numpy(obs) if obs.dtype == np.uint8 else torch.from_numpy(obs).float()
 			td = TensorDict(

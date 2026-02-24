@@ -128,6 +128,8 @@ def convert_h5_to_npz(h5_path, output_dir, obs_mode='state', second_cam='none', 
     output_dir = pathlib.Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+
+    print_sample = True
     with h5py.File(h5_path, 'r') as f:
         traj_keys = sorted(f.keys(), key=lambda x: int(x.split('_')[1]))
 
@@ -164,6 +166,14 @@ def convert_h5_to_npz(h5_path, output_dir, obs_mode='state', second_cam='none', 
             traj_id = traj_key.split('_')[1]
             filename = output_dir / f"traj_{traj_id}.npz"
 
+            if print_sample:
+                # print out the keys shapes and dtypes of the first trajectory for verification
+                print(f"Sample trajectory keys and shapes from {filename}:")
+                for k, v in episode.items():
+                    print(f"  {k}: shape={v.shape}, dtype={v.dtype}")
+                print("...")  # indicate that this is just a sample
+                print_sample = False
+
             with io.BytesIO() as buf:
                 np.savez_compressed(buf, **episode)
                 buf.seek(0)
@@ -175,7 +185,7 @@ def convert_h5_to_npz(h5_path, output_dir, obs_mode='state', second_cam='none', 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--h5', required=True, help='Path to ManiSkill h5 demo file')
+    parser.add_argument('--h5', required=False, default=None, help='Path to ManiSkill h5 demo file')
     parser.add_argument('--type', required=True, help='Task type name, e.g. pick-cube')
     parser.add_argument('--obs', default='state', choices=['state', 'rgb'],
                         help='Observation mode: state (default) or rgb (base_camera RGB + hand_camera depth)')
@@ -184,11 +194,22 @@ if __name__ == '__main__':
                              'depth (base depth +1ch), rgbd (both +4ch)')
     parser.add_argument('--add_success_reward', action='store_true',
                         help='Add +100 reward bonus on steps where success=True')
+    parser.add_argument('--task', default="PickCube-v1", help='Task name for default h5 path (ignored if --h5 is provided)')
     args = parser.parse_args()
 
     script_dir = pathlib.Path(__file__).parent
     suffix = args.obs if args.second_cam == 'none' else f'{args.obs}_{args.second_cam}'
     output_dir = script_dir / 'demonstrations' / args.type / suffix
+    
+    if args.h5 is None:
+        print("No --h5 path provided, using default location based on --type:")
+        h5 = pathlib.Path.home() / '.maniskill' / 'demos' / f'{args.task}' / f'{args.type}' / f'trajectory.state+rgb+depth.pd_ee_delta_pos.physx_cpu.h5'
+    else:
+        h5 = pathlib.Path(args.h5).expanduser()
 
-    convert_h5_to_npz(args.h5, output_dir, obs_mode=args.obs, second_cam=args.second_cam,
+    # assert h5 file exists before starting conversion
+    if not h5.is_file():
+        raise FileNotFoundError(f"H5 file not found: {h5}. Please check the --h5 path and task type.")
+
+    convert_h5_to_npz(h5, output_dir, obs_mode=args.obs, second_cam=args.second_cam,
                        add_success_reward=args.add_success_reward)
