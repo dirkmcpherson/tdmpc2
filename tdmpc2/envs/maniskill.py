@@ -30,6 +30,34 @@ MANISKILL_TASKS = {
 IMG_SIZE = 64
 
 
+def _cam_parts(cfg):
+	"""Return list of (camera, modality) pairs for the observation channels.
+
+	second_cam controls what the hand (second) camera contributes:
+	  none  → base RGB (3) + hand depth (1) = 4ch  [backward compatible]
+	  rgb   → base RGB (3) + hand RGB (3) = 6ch
+	  depth → base depth (1) + hand depth (1) = 2ch
+	  rgbd  → base RGBD (4) + hand RGBD (4) = 8ch
+	"""
+	second = getattr(cfg, 'second_cam', 'none')
+	if second == 'none':
+		return [('base', 'rgb'), ('hand', 'depth')]
+	elif second == 'rgb':
+		return [('base', 'rgb'), ('hand', 'rgb')]
+	elif second == 'depth':
+		return [('base', 'depth'), ('hand', 'depth')]
+	elif second == 'rgbd':
+		return [('base', 'rgb'), ('base', 'depth'), ('hand', 'rgb'), ('hand', 'depth')]
+	else:
+		raise ValueError(f'Unknown second_cam={second}')
+
+
+def _img_channels(cfg):
+	"""Number of observation image channels based on second_cam setting."""
+	ch = {'rgb': 3, 'depth': 1}
+	return sum(ch[mod] for _, mod in _cam_parts(cfg))
+
+
 class ManiSkillWrapper(gym.Wrapper):
 	def __init__(self, env, cfg):
 		super().__init__(env)
@@ -40,9 +68,10 @@ class ManiSkillWrapper(gym.Wrapper):
 			self.observation_space = gym.spaces.Box(
 				low=-np.inf, high=np.inf, shape=obs_shape, dtype=np.float32
 			)
-		else:  # rgb: 3ch base_camera RGB + 1ch hand_camera depth, channels-first
+		else:  # rgb: base_camera RGB + hand_camera depth + optional second_cam channels
+			n_ch = _img_channels(cfg)
 			self.observation_space = gym.spaces.Box(
-				low=0, high=255, shape=(4, IMG_SIZE, IMG_SIZE), dtype=np.uint8
+				low=0, high=255, shape=(n_ch, IMG_SIZE, IMG_SIZE), dtype=np.uint8
 			)
 		self.action_space = gym.spaces.Box(
 			low=np.full(self.env.action_space.shape, self.env.action_space.low.min()),
@@ -50,33 +79,29 @@ class ManiSkillWrapper(gym.Wrapper):
 			dtype=np.float32,
 		)
 
-	def _extract_image(self, obs):
-		"""Extract (4, 64, 64) uint8 image: base_camera RGB + hand_camera depth."""
-		sensor_data = obs['sensor_data']
-		cameras = list(sensor_data.values())
+	def _resize(self, t):
+		"""Resize (H, W, C) tensor to (C, IMG_SIZE, IMG_SIZE)."""
+		return F.interpolate(
+			t.permute(2, 0, 1).unsqueeze(0),
+			size=(IMG_SIZE, IMG_SIZE), mode='bilinear', align_corners=False
+		).squeeze(0)
 
-		# Concatenate RGB from all cameras along channel dim → (B, H, W, 3*N)
-		# Take base_camera (first 3 channels), drop batch dim → (H, W, 3)
-		rgb = torch.cat([c['rgb'] for c in cameras], dim=-1)[0, :, :, :3].float()
-
-		# Concatenate depth from all cameras → (B, H, W, N)
-		# Take hand_camera (index 1), drop batch dim → (H, W, 1)
-		depth = torch.cat([c['depth'] for c in cameras], dim=-1)[0, :, :, 1:2].float()
+	def _norm_depth(self, depth):
+		"""Normalize raw depth (mm) to [0, 255] float."""
 		depth = torch.nan_to_num(depth, nan=0.0, posinf=0.0, neginf=0.0)
-		depth = torch.clamp(depth / 2000.0 * 255.0, 0, 255)
+		return torch.clamp(depth / 2000.0 * 255.0, 0, 255)
 
-		# Resize both to IMG_SIZE: (H, W, C) → (1, C, H, W) → interpolate → (C, H, W)
-		rgb_t = F.interpolate(
-			rgb.permute(2, 0, 1).unsqueeze(0),
-			size=(IMG_SIZE, IMG_SIZE), mode='bilinear', align_corners=False
-		).squeeze(0)
-		depth_t = F.interpolate(
-			depth.permute(2, 0, 1).unsqueeze(0),
-			size=(IMG_SIZE, IMG_SIZE), mode='bilinear', align_corners=False
-		).squeeze(0)
-
-		# Combine to (4, H, W) uint8
-		return torch.cat([rgb_t, depth_t], dim=0).byte().cpu().numpy()
+	def _extract_image(self, obs):
+		"""Extract image obs based on second_cam config."""
+		sd = obs['sensor_data']
+		cams = {'base': sd['base_camera'], 'hand': sd['hand_camera']}
+		parts = []
+		for cam_name, modality in _cam_parts(self.cfg):
+			raw = cams[cam_name][modality][0].float()  # (H, W, C), drop batch dim
+			if modality == 'depth':
+				raw = self._norm_depth(raw)
+			parts.append(self._resize(raw))
+		return torch.cat(parts, dim=0).byte().cpu().numpy()
 
 	def _extract_obs(self, obs):
 		if self.cfg.obs == 'state':

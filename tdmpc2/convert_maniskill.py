@@ -59,49 +59,71 @@ def extract_state(traj_obs):
     return np.concatenate(parts, axis=-1)  # (T+1, state_dim)
 
 
-def extract_image(traj_obs):
-    """Extract (T+1, 4, 64, 64) uint8 image matching tdmpc2's _extract_image.
+def _norm_depth(depth):
+    """Normalize raw depth to [0, 255] uint8 (2 m range)."""
+    max_mm = 2000.0
+    depth = np.nan_to_num(depth, nan=0.0, posinf=max_mm, neginf=0.0)
+    return np.clip(depth / max_mm * 255.0, 0, 255).astype(np.uint8)
 
-    Layout: base_camera RGB (3ch) + hand_camera depth (1ch), channels-first.
+
+def _resize_rgb(frames):
+    """Resize (T, H, W, 3) uint8 RGB to (T, IMG_SIZE, IMG_SIZE, 3)."""
+    out = []
+    for frame in frames:
+        img = Image.fromarray(frame).resize((IMG_SIZE, IMG_SIZE), Image.Resampling.LANCZOS)
+        out.append(np.array(img))
+    return np.stack(out, axis=0)
+
+
+def _resize_depth(frames):
+    """Resize (T, H, W, 1) uint8 depth to (T, IMG_SIZE, IMG_SIZE, 1)."""
+    out = []
+    for frame in frames:
+        d = Image.fromarray(frame[:, :, 0], mode='L').resize((IMG_SIZE, IMG_SIZE), Image.Resampling.LANCZOS)
+        out.append(np.array(d)[:, :, None])
+    return np.stack(out, axis=0)
+
+
+def _cam_parts(second_cam):
+    """Return list of (camera, modality) pairs — mirrors envs/maniskill.py logic."""
+    if second_cam == 'none':
+        return [('base', 'rgb'), ('hand', 'depth')]
+    elif second_cam == 'rgb':
+        return [('base', 'rgb'), ('hand', 'rgb')]
+    elif second_cam == 'depth':
+        return [('base', 'depth'), ('hand', 'depth')]
+    elif second_cam == 'rgbd':
+        return [('base', 'rgb'), ('base', 'depth'), ('hand', 'rgb'), ('hand', 'depth')]
+    else:
+        raise ValueError(f'Unknown second_cam={second_cam}')
+
+
+def extract_image(traj_obs, second_cam='none'):
+    """Extract image obs matching tdmpc2's _extract_image.
+
+    Channel layout is determined by second_cam (see _cam_parts).
     Depth is normalized to [0, 255] uint8 (2 m range), matching the live env.
     """
     sd = traj_obs['sensor_data']
+    cam_names = {'base': 'base_camera', 'hand': 'hand_camera'}
+    parts = []
+    for cam, modality in _cam_parts(second_cam):
+        h5_cam = cam_names[cam]
+        assert h5_cam in sd and modality in sd[h5_cam], (
+            f"'{h5_cam}/{modality}' not found. Re-record demos with obs_mode='rgb+depth' "
+            "and robot_uids='panda_wristcam'."
+        )
+        raw = sd[h5_cam][modality][:]
+        if modality == 'rgb':
+            parts.append(_resize_rgb(raw))
+        else:
+            parts.append(_resize_depth(_norm_depth(raw.astype(np.float32))))
 
-    assert 'base_camera' in sd and 'rgb' in sd['base_camera'], (
-        "'base_camera/rgb' not found. Re-record demos with obs_mode including rgb "
-        "and robot_uids='panda_wristcam'."
-    )
-    assert 'hand_camera' in sd and 'depth' in sd['hand_camera'], (
-        "'hand_camera/depth' not found. Re-record demos with robot_uids='panda_wristcam'."
-    )
-
-    base_rgb = sd['base_camera']['rgb'][:]    # (T+1, H, W, 3) uint8
-    hand_depth = sd['hand_camera']['depth'][:].astype(np.float32)  # (T+1, H, W, 1)
-
-    # Normalize depth to [0, 255] uint8 (2 m range), matching _extract_image
-    max_mm = 2000.0
-    hand_depth = np.nan_to_num(hand_depth, nan=0.0, posinf=max_mm, neginf=0.0)
-    hand_depth = np.clip(hand_depth / max_mm * 255.0, 0, 255).astype(np.uint8)
-
-    # Resize each frame with PIL (LANCZOS), matching dreamerv3-torch conversion
-    resized_rgb = []
-    for frame in base_rgb:
-        img = Image.fromarray(frame).resize((IMG_SIZE, IMG_SIZE), Image.Resampling.LANCZOS)
-        resized_rgb.append(np.array(img))
-    resized_rgb = np.stack(resized_rgb, axis=0)  # (T+1, H, W, 3)
-
-    resized_depth = []
-    for frame in hand_depth:
-        d = Image.fromarray(frame[:, :, 0], mode='L').resize((IMG_SIZE, IMG_SIZE), Image.Resampling.LANCZOS)
-        resized_depth.append(np.array(d)[:, :, None])
-    resized_depth = np.stack(resized_depth, axis=0)  # (T+1, H, W, 1)
-
-    # Combine and convert to channels-first (T+1, 4, H, W)
-    combined = np.concatenate([resized_rgb, resized_depth], axis=-1)  # (T+1, H, W, 4)
-    return combined.transpose(0, 3, 1, 2)  # (T+1, 4, H, W) uint8
+    combined = np.concatenate(parts, axis=-1)  # (T+1, H, W, C)
+    return combined.transpose(0, 3, 1, 2)      # (T+1, C, H, W) uint8
 
 
-def convert_h5_to_npz(h5_path, output_dir, obs_mode='state', add_success_reward=False):
+def convert_h5_to_npz(h5_path, output_dir, obs_mode='state', second_cam='none', add_success_reward=False):
     h5_path = pathlib.Path(h5_path).expanduser()
     output_dir = pathlib.Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -113,7 +135,7 @@ def convert_h5_to_npz(h5_path, output_dir, obs_mode='state', add_success_reward=
             traj = f[traj_key]
 
             if obs_mode == 'rgb':
-                obs = extract_image(traj['obs'])   # (T+1, 4, 64, 64) uint8
+                obs = extract_image(traj['obs'], second_cam=second_cam)   # (T+1, C, 64, 64) uint8
             else:
                 obs = extract_state(traj['obs'])   # (T+1, state_dim) float32
 
@@ -157,11 +179,16 @@ if __name__ == '__main__':
     parser.add_argument('--type', required=True, help='Task type name, e.g. pick-cube')
     parser.add_argument('--obs', default='state', choices=['state', 'rgb'],
                         help='Observation mode: state (default) or rgb (base_camera RGB + hand_camera depth)')
+    parser.add_argument('--second_cam', default='none', choices=['none', 'rgb', 'depth', 'rgbd'],
+                        help='Extra channels from second camera: none (default), rgb (hand RGB +3ch), '
+                             'depth (base depth +1ch), rgbd (both +4ch)')
     parser.add_argument('--add_success_reward', action='store_true',
                         help='Add +100 reward bonus on steps where success=True')
     args = parser.parse_args()
 
     script_dir = pathlib.Path(__file__).parent
-    output_dir = script_dir / 'demonstrations' / args.type / args.obs
+    suffix = args.obs if args.second_cam == 'none' else f'{args.obs}_{args.second_cam}'
+    output_dir = script_dir / 'demonstrations' / args.type / suffix
 
-    convert_h5_to_npz(args.h5, output_dir, obs_mode=args.obs, add_success_reward=args.add_success_reward)
+    convert_h5_to_npz(args.h5, output_dir, obs_mode=args.obs, second_cam=args.second_cam,
+                       add_success_reward=args.add_success_reward)

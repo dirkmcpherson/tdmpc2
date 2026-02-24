@@ -25,9 +25,16 @@ class OnlineTrainer(Trainer):
 			print(f'Warning: no .npz files found in {demo_dir}')
 			return
 		print(f'Loading {len(npz_files)} demonstrations from {demo_dir}')
+		# Expected obs channels from env config (e.g. 7 for second_cam=rgb)
+		expected_shape = self.cfg.obs_shape.get('rgb', None)
 		for path in npz_files:
 			data = np.load(path)
 			obs = data['obs']
+			# Pad image obs channels if demos have fewer than expected (e.g. 4ch demos with second_cam=rgb)
+			if expected_shape is not None and obs.ndim == 4 and obs.shape[1] < expected_shape[0]:
+				pad_channels = expected_shape[0] - obs.shape[1]
+				padding = np.zeros((obs.shape[0], pad_channels, obs.shape[2], obs.shape[3]), dtype=obs.dtype)
+				obs = np.concatenate([obs, padding], axis=1)
 			# Keep uint8 for image obs — PixelPreprocess in the encoder handles /255
 			obs_tensor = torch.from_numpy(obs) if obs.dtype == np.uint8 else torch.from_numpy(obs).float()
 			td = TensorDict(

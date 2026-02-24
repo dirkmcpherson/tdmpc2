@@ -64,6 +64,7 @@ dropout: 0.01
 simnorm_dim: 8
 uncertainty_weight: false
 num_dynamics: 3
+second_cam: none
 
 # logging
 wandb_project: ???
