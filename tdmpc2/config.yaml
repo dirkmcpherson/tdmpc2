@@ -55,6 +55,8 @@ vmax: +10
 model_size: ???
 num_enc_layers: 2
 enc_dim: 256
+encoder: conv
+freeze_encoder: true
 num_channels: 32
 mlp_dim: 512
 latent_dim: 512

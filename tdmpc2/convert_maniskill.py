@@ -186,7 +186,7 @@ def convert_h5_to_npz(h5_path, output_dir, obs_mode='state', second_cam='none', 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--h5', required=False, default=None, help='Path to ManiSkill h5 demo file')
-    parser.add_argument('--type', required=True, help='Task type name, e.g. pick-cube')
+    parser.add_argument('--type', required=True, help='Demo generation source', choices=['teleop', 'motionplanning'])
     parser.add_argument('--obs', default='state', choices=['state', 'rgb'],
                         help='Observation mode: state (default) or rgb (base_camera RGB + hand_camera depth)')
     parser.add_argument('--second_cam', default='none', choices=['none', 'rgb', 'depth', 'rgbd'],
