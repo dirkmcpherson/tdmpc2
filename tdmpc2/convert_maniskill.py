@@ -59,6 +59,34 @@ def extract_state(traj_obs):
     return np.concatenate(parts, axis=-1)  # (T+1, state_dim)
 
 
+def extract_reduced_state(traj_obs):
+    """Extract 26-dim reduced state: qpos(9) + qvel(9) + is_grasped(1) + tcp_pose(7).
+
+    Works with both flat state (42-dim) and structured agent/extra fields.
+    State layout: qpos(9) + qvel(9) + is_grasped(1) + tcp_pose(7) + goal_pos(3) + obj_pose(7) + tcp_to_obj_pos(3) + obj_to_goal_pos(3)
+    """
+    if 'state' in traj_obs:
+        # Flat state: first 26 dims are the reduced state
+        return traj_obs['state'][:, :26].astype(np.float32)
+
+    agent = traj_obs['agent']
+    extra = traj_obs['extra']
+
+    def _get(group, key):
+        v = group[key][:]
+        if v.ndim == 3:
+            v = v[:, 0, :]  # squeeze batch dim
+        return v.reshape(v.shape[0], -1).astype(np.float32)
+
+    parts = [
+        _get(agent, 'qpos'),        # (T+1, 9)
+        _get(agent, 'qvel'),         # (T+1, 9)
+        _get(extra, 'is_grasped'),   # (T+1, 1)
+        _get(extra, 'tcp_pose'),     # (T+1, 7)
+    ]
+    return np.concatenate(parts, axis=-1)  # (T+1, 26)
+
+
 def _norm_depth(depth):
     """Normalize raw depth to [0, 255] uint8 (2 m range)."""
     max_mm = 2000.0
@@ -136,10 +164,14 @@ def convert_h5_to_npz(h5_path, output_dir, obs_mode='state', second_cam='none', 
         for traj_key in tqdm.tqdm(traj_keys, desc=f"Converting {h5_path.name}"):
             traj = f[traj_key]
 
-            if obs_mode == 'rgb':
+            if obs_mode in ('rgb', 'rgb+state'):
                 obs = extract_image(traj['obs'], second_cam=second_cam)   # (T+1, C, 64, 64) uint8
             else:
                 obs = extract_state(traj['obs'])   # (T+1, state_dim) float32
+
+            reduced_state = None
+            if obs_mode == 'rgb+state':
+                reduced_state = extract_reduced_state(traj['obs'])  # (T+1, 26)
 
             action = traj['actions'][:].astype(np.float32)     # (T, action_dim)
             reward = traj['rewards'][:].astype(np.float32).reshape(-1)  # (T,)
@@ -162,6 +194,9 @@ def convert_h5_to_npz(h5_path, output_dir, obs_mode='state', second_cam='none', 
                 'reward':     full_reward,
                 'terminated': full_terminated,
             }
+
+            if reduced_state is not None:
+                episode['state'] = reduced_state
 
             traj_id = traj_key.split('_')[1]
             filename = output_dir / f"traj_{traj_id}.npz"
@@ -187,9 +222,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--h5', required=False, default=None, help='Path to ManiSkill h5 demo file')
     parser.add_argument('--type', required=True, help='Demo generation source', choices=['teleop', 'motionplanning'])
-    parser.add_argument('--obs', default='state', choices=['state', 'rgb'],
-                        help='Observation mode: state (default) or rgb (base_camera RGB + hand_camera depth)')
-    parser.add_argument('--second_cam', default='none', choices=['none', 'rgb', 'depth', 'rgbd'],
+    parser.add_argument('--obs', default='state', choices=['state', 'rgb', 'rgb+state'],
+                        help='Observation mode: state (default), rgb (images only), or rgb+state (images + 26-dim reduced state)')
+    parser.add_argument('--second_cam', default='rgb', choices=['none', 'rgb', 'depth', 'rgbd'],
                         help='Extra channels from second camera: none (default), rgb (hand RGB +3ch), '
                              'depth (base depth +1ch), rgbd (both +4ch)')
     parser.add_argument('--add_success_reward', action='store_true',

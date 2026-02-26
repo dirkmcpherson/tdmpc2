@@ -58,6 +58,9 @@ def _img_channels(cfg):
 	return sum(ch[mod] for _, mod in _cam_parts(cfg))
 
 
+REDUCED_STATE_DIM = 26  # qpos(9) + qvel(9) + is_grasped(1) + tcp_pose(7)
+
+
 class ManiSkillWrapper(gym.Wrapper):
 	def __init__(self, env, cfg):
 		super().__init__(env)
@@ -68,6 +71,12 @@ class ManiSkillWrapper(gym.Wrapper):
 			self.observation_space = gym.spaces.Box(
 				low=-np.inf, high=np.inf, shape=obs_shape, dtype=np.float32
 			)
+		elif cfg.obs == 'rgb+state':
+			n_ch = _img_channels(cfg)
+			self.observation_space = gym.spaces.Dict({
+				'rgb': gym.spaces.Box(low=0, high=255, shape=(n_ch, IMG_SIZE, IMG_SIZE), dtype=np.uint8),
+				'state': gym.spaces.Box(low=-np.inf, high=np.inf, shape=(REDUCED_STATE_DIM,), dtype=np.float32),
+			})
 		else:  # rgb: base_camera RGB + hand_camera depth + optional second_cam channels
 			n_ch = _img_channels(cfg)
 			self.observation_space = gym.spaces.Box(
@@ -103,9 +112,26 @@ class ManiSkillWrapper(gym.Wrapper):
 			parts.append(self._resize(raw))
 		return torch.cat(parts, dim=0).byte().cpu().numpy()
 
+	def _extract_reduced_state(self, obs):
+		"""Extract 26-dim reduced state: qpos(9) + qvel(9) + is_grasped(1) + tcp_pose(7)."""
+		agent = obs['agent']
+		extra = obs['extra']
+		parts = [
+			agent['qpos'][0].cpu().numpy().reshape(-1),
+			agent['qvel'][0].cpu().numpy().reshape(-1),
+			extra['is_grasped'][0].cpu().numpy().reshape(-1),
+			extra['tcp_pose'][0].cpu().numpy().reshape(-1),
+		]
+		return np.concatenate(parts).astype(np.float32)
+
 	def _extract_obs(self, obs):
 		if self.cfg.obs == 'state':
 			return obs.squeeze(0).cpu().numpy()
+		if self.cfg.obs == 'rgb+state':
+			return {
+				'rgb': self._extract_image(obs),
+				'state': self._extract_reduced_state(obs),
+			}
 		return self._extract_image(obs)
 
 	def reset(self):
@@ -156,7 +182,7 @@ def make_env(cfg):
 	"""
 	if cfg.task not in MANISKILL_TASKS:
 		raise ValueError('Unknown task:', cfg.task)
-	assert cfg.obs in ('state', 'rgb'), 'This task only supports state or rgb observations.'
+	assert cfg.obs in ('state', 'rgb', 'rgb+state'), 'This task only supports state, rgb, or rgb+state observations.'
 	task_cfg = MANISKILL_TASKS[cfg.task]
 	if cfg.obs == 'state':
 		env = gym.make(
@@ -166,10 +192,11 @@ def make_env(cfg):
 			num_envs=1,
 			render_mode='rgb_array',
 		)
-	else:  # rgb
+	else:  # rgb or rgb+state — both need sensor data
+		obs_mode = 'state_dict+rgb+depth' if cfg.obs == 'rgb+state' else 'rgb+depth'
 		env = gym.make(
 			task_cfg['env'],
-			obs_mode='rgb+depth',
+			obs_mode=obs_mode,
 			control_mode=task_cfg['control_mode'],
 			num_envs=1,
 			robot_uids='panda_wristcam',

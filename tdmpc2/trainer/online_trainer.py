@@ -34,7 +34,14 @@ class OnlineTrainer(Trainer):
 					f"Re-convert demos with matching --second_cam setting."
 				)
 			# Keep uint8 for image obs — PixelPreprocess in the encoder handles /255
-			obs_tensor = torch.from_numpy(obs) if obs.dtype == np.uint8 else torch.from_numpy(obs).float()
+			img_tensor = torch.from_numpy(obs) if obs.dtype == np.uint8 else torch.from_numpy(obs).float()
+			if 'state' in data:  # rgb+state: build nested TensorDict matching online collection
+				obs_tensor = TensorDict(
+					{'rgb': img_tensor, 'state': torch.from_numpy(data['state']).float()},
+					batch_size=(len(obs),),
+				)
+			else:
+				obs_tensor = img_tensor
 			td = TensorDict(
 				obs=obs_tensor,
 				action=torch.from_numpy(data['action']).float(),
@@ -84,7 +91,7 @@ class OnlineTrainer(Trainer):
 	def to_td(self, obs, action=None, reward=None, terminated=None):
 		"""Creates a TensorDict for a new episode."""
 		if isinstance(obs, dict):
-			obs = TensorDict(obs, batch_size=(), device='cpu')
+			obs = TensorDict({k: v.unsqueeze(0).cpu() for k, v in obs.items()}, batch_size=(1,))
 		else:
 			obs = obs.unsqueeze(0).cpu()
 		if action is None:

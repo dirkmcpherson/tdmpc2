@@ -117,6 +117,22 @@ class WorldModel(nn.Module):
 		Encodes an observation into its latent representation.
 		This implementation assumes a single state-based observation.
 		"""
+		if self.cfg.obs == 'rgb+state':
+			rgb, state = obs['rgb'], obs['state']
+			if rgb.ndim == 3:  # single (C, H, W) — add/remove batch dim for Conv2d
+				z_rgb = self._encoder['rgb'](rgb.unsqueeze(0)).squeeze(0)
+			elif rgb.ndim == 5:  # sequence (T, B, C, H, W) — loop over T
+				z_rgb = torch.stack([self._encoder['rgb'](r) for r in rgb])
+			else:  # batch (B, C, H, W)
+				z_rgb = self._encoder['rgb'](rgb)
+			if state.ndim == 1:  # single (D,)
+				z_state = self._encoder['state'](state.unsqueeze(0)).squeeze(0)
+			elif state.ndim == 3:  # sequence (T, B, D)
+				T, B, D = state.shape
+				z_state = self._encoder['state'](state.reshape(T*B, D)).reshape(T, B, -1)
+			else:  # batch (B, D)
+				z_state = self._encoder['state'](state)
+			return z_rgb + z_state
 		if self.cfg.multitask:
 			obs = self.task_emb(obs, task)
 		if self.cfg.obs == 'rgb':
