@@ -68,6 +68,17 @@ uncertainty_weight: false
 num_dynamics: 3
 second_cam: none
 
+# unreliable region experiment
+unreliable_region: false     # enable broken env (randomize actions in bad region)
+oracle_avoidance: false      # enable oracle reliability fn in MPPI planning
+unreliable_axis: 1           # 0=x, 1=y, 2=z of EE position
+unreliable_threshold: 0.0    # boundary on that axis
+unreliable_side: positive    # "positive" = EE > threshold is bad
+reliability_mode: mask       # "mask" = hard avoidance, "cost" = soft penalty
+reliability_cost: 10.0       # weight for "cost" mode
+ee_obs_idx: 18               # index of tcp xyz in state obs (18 for state, 19 for rgb+state)
+ee_action_scale: 1.0         # scale factor for action-to-EE-delta mapping
+
 # logging
 wandb_project: ???
 wandb_entity: None

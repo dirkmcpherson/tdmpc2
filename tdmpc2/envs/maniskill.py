@@ -202,6 +202,14 @@ def make_env(cfg):
 			robot_uids='panda_wristcam',
 			render_mode='rgb_array',
 		)
+	if getattr(cfg, 'unreliable_region', False):
+		from envs.unreliable_region import UnreliableRegionWrapper
+		env = UnreliableRegionWrapper(
+			env,
+			axis=getattr(cfg, 'unreliable_axis', 1),
+			threshold=getattr(cfg, 'unreliable_threshold', 0.0),
+			side=getattr(cfg, 'unreliable_side', 'positive'),
+		)
 	env = ManiSkillWrapper(env, cfg)
 	env = Timeout(env, max_episode_steps=100)
 	return env

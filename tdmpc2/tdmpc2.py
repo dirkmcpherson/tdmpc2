@@ -40,6 +40,7 @@ class TDMPC2(torch.nn.Module):
 		print('Episode length:', cfg.episode_length)
 		print('Discount factor:', self.discount)
 		self._prev_mean = torch.nn.Buffer(torch.zeros(self.cfg.horizon, self.cfg.action_dim, device=self.device))
+		self._current_ee_pos = torch.nn.Buffer(torch.zeros(1, 3, device=self.device), persistent=False)
 		if cfg.compile:
 			print('Compiling update function with torch.compile...')
 			self._update = torch.compile(self._update, mode="default")
@@ -116,6 +117,14 @@ class TDMPC2(torch.nn.Module):
 			obs = obs.to(self.device, non_blocking=True).unsqueeze(0)
 		if task is not None:
 			task = torch.tensor([task], device=self.device)
+		if getattr(self.cfg, 'oracle_avoidance', False):
+			if isinstance(obs, TensorDict):
+				_state = obs['state']
+			else:
+				_state = obs
+			self._current_ee_pos.copy_(
+				_state[:, self.cfg.ee_obs_idx:self.cfg.ee_obs_idx+3]
+			)
 		if self.cfg.mpc:
 			return self.plan(obs, t0=t0, eval_mode=eval_mode, task=task).cpu()
 		z = self.model.encode(obs, task)
@@ -125,10 +134,13 @@ class TDMPC2(torch.nn.Module):
 		return action[0].cpu()
 
 	@torch.no_grad()
-	def _estimate_value(self, z, actions, task):
+	def _estimate_value(self, z, actions, task, ee_pos=None):
 		"""Estimate value of a trajectory starting at latent state z and executing given actions."""
 		G, discount = 0, 1
 		termination = torch.zeros(self.cfg.num_samples, 1, dtype=torch.float32, device=z.device)
+		if self.cfg.oracle_avoidance:
+			unreliable = torch.zeros(self.cfg.num_samples, 1, dtype=torch.bool, device=z.device)
+			_ee = ee_pos.clone()
 		for t in range(self.cfg.horizon):
 			reward = math.two_hot_inv(self.model.reward(z, actions[t], task), self.cfg)
 			z = self.model.next(z, actions[t], task)
@@ -137,8 +149,22 @@ class TDMPC2(torch.nn.Module):
 			discount = discount * discount_update
 			if self.cfg.episodic:
 				termination = torch.clip(termination + (self.model.termination(z, task) > 0.5).float(), max=1.)
+			if self.cfg.oracle_avoidance:
+				_ee = _ee + actions[t][:, :3] * self.cfg.ee_action_scale
+				ee_val = _ee[:, self.cfg.unreliable_axis:self.cfg.unreliable_axis+1]
+				if self.cfg.unreliable_side == 'positive':
+					in_bad = ee_val > self.cfg.unreliable_threshold
+				else:
+					in_bad = ee_val < self.cfg.unreliable_threshold
+				if self.cfg.reliability_mode == 'mask':
+					unreliable = unreliable | in_bad
+				else:
+					G = G - self.cfg.reliability_cost * in_bad.float()
 		action, _ = self.model.pi(z, task)
-		return G + discount * (1-termination) * self.model.Q(z, action, task, return_type='avg')
+		final_value = G + discount * (1-termination) * self.model.Q(z, action, task, return_type='avg')
+		if self.cfg.oracle_avoidance and self.cfg.reliability_mode == 'mask':
+			final_value = torch.where(unreliable, torch.full_like(final_value, -1e10), final_value)
+		return final_value
 
 	@torch.no_grad()
 	def _plan(self, obs, t0=False, eval_mode=False, task=None):
@@ -166,6 +192,10 @@ class TDMPC2(torch.nn.Module):
 
 		# Initialize state and parameters
 		z = z.repeat(self.cfg.num_samples, 1)
+		if self.cfg.oracle_avoidance:
+			ee_pos_init = self._current_ee_pos.repeat(self.cfg.num_samples, 1)
+		else:
+			ee_pos_init = None
 		mean = torch.zeros(self.cfg.horizon, self.cfg.action_dim, device=self.device)
 		std = torch.full((self.cfg.horizon, self.cfg.action_dim), self.cfg.max_std, dtype=torch.float, device=self.device)
 		if not t0:
@@ -186,7 +216,7 @@ class TDMPC2(torch.nn.Module):
 				actions = actions * self.model._action_masks[task]
 
 			# Compute elite actions
-			value = self._estimate_value(z, actions, task).nan_to_num(0)
+			value = self._estimate_value(z, actions, task, ee_pos=ee_pos_init).nan_to_num(0)
 			elite_idxs = torch.topk(value.squeeze(1), self.cfg.num_elites, dim=0).indices
 			elite_value, elite_actions = value[elite_idxs], actions[:, elite_idxs]
 
